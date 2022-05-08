@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 type problem struct {
@@ -44,7 +45,7 @@ func readFile(r io.Reader) ([][]string, error) {
 	return records, scanner.Err()
 }
 
-func getUserAnswer(i int, p problem) (isCorrect bool) {
+func checkUserAnswer(i int, p problem) (isCorrect bool) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Printf("Problem #%d: %s = ", i+1, p.question)
 	scanner.Scan()
@@ -58,6 +59,7 @@ func getUserAnswer(i int, p problem) (isCorrect bool) {
 func main() {
 	// parse flags for the CSV filename
 	csvFile := flag.String("csv", "problems.csv", "a csv file in the form of 'question,answer'")
+	timeLimit := flag.Int("limit", 30, "the time limit for the quiz in seconds")
 	flag.Parse()
 
 	file, err := os.Open(*csvFile)
@@ -73,10 +75,27 @@ func main() {
 
 	problems := parseLines(records)
 
-	var score int
+	timer := time.NewTimer(time.Duration(*timeLimit) * time.Second)
+	defer timer.Stop()
+
+	score := 0
+
+questionLoop:
 	for i, p := range problems {
-		if isCorrect := getUserAnswer(i, p); isCorrect {
-			score++
+		resultChan := make(chan bool)
+
+		go func(i int, p problem) { // goroutine to check the user's answer
+			resultChan <- checkUserAnswer(i, p)
+		}(i, p)
+
+		select {
+		case result := <-resultChan:
+			if result {
+				score++
+			}
+		case <-timer.C:
+			fmt.Println("\nYou ran out of time!")
+			break questionLoop
 		}
 	}
 
